@@ -93,7 +93,6 @@ export default function App() {
         }
       });
     }
-    // add turn instructions here at the end
   }
 
   const separator = (id, pins) => {
@@ -105,22 +104,23 @@ export default function App() {
     }
   }
 
-  const pythagoras = (initial, final) => {
-    const lngDiff = Math.abs(initial.lng - final.lng);
-    const latDiff = Math.abs(initial.lat - final.lat);
-    return Math.sqrt(Math.pow(lngDiff, 2) + Math.pow(latDiff, 2));
+  const pythagoras = async (initial, final) => {
+  const lngDiff = Math.abs(initial.lng - final.lng);
+  const latDiff = Math.abs(initial.lat - final.lat);
+  return Math.sqrt(Math.pow(lngDiff, 2) + Math.pow(latDiff, 2));
   }
 
   let orderToVisit = 1;
 
   // Search Nearest Pin
-  const searcher = (separatedObj) => {
+  const searcher = async (separatedObj) => {
     const distances = []; //Store distances from Pythagoras Theorem.
     const mainPin = separatedObj.point;
     const otherPins = separatedObj.rest;
-    otherPins.forEach((i) => {
+    otherPins.forEach(async (i) => {
       distances.push(pythagoras(mainPin, i));
     }); // Loop through other pins to collect distances.
+
     const smallest = Math.min(...distances) // Nearest distance
     const indexOfNearestDistance = distances.indexOf(smallest);
     const nearestPin = separatedObj.rest[indexOfNearestDistance];
