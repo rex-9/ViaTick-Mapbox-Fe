@@ -3,8 +3,6 @@
 @tailwind utilities;
 
 .mapboxgl-marker {
-  background-image: url('./assets/mapbox-icon.png');
-  background-size: cover;
   width: 50px;
   height: 50px;
   border-radius: 50%;
