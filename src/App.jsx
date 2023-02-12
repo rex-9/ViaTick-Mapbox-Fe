@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import pins from './helper/data';
 
 mapboxgl.accessToken = 'pk.eyJ1IjoicmV4OSIsImEiOiJjbGR6dnQ2bXgwNWpzNDBxandtZHQ0ZzVzIn0._leMfBVM3NzX9RVigu5Wtg';
 
@@ -11,6 +10,47 @@ export default function App() {
   const [lng, setLng] = useState(center[0]);
   const [lat, setLat] = useState(center[1]);
   const map = useRef(null);
+  const [pins, setPins] = useState([]);
+  const [newPinsStatus, setNewPinsStatus] = useState(false);
+  const [render, setRender] = useState(false);
+
+  const loadPins = (data) => {
+    map.current.on('load', () => {
+      // Add My Location
+      new mapboxgl.Marker().setLngLat({ lng: center[0], lat: center[1] }).addTo(map.current);
+      // Add 20 Markers and PopUps
+      data.forEach((pin) => {
+        // Create Marker
+        let marker = new mapboxgl.Marker()
+        const temp = {
+          lng: pin.lng,
+          lat: pin.lat
+        }
+        marker.setLngLat(temp).addTo(map.current);
+      });
+    });
+  }
+
+  const initPinsAndMap = async () => {
+    const response = await fetch('http://127.0.0.1:3000/pins');
+    const data = await response.json();
+    setPins(data);
+
+    if (data.length > 0) {
+      if (map.current) return; // Initialize map only once
+      map.current = new mapboxgl.Map({
+        container: "map",
+        style: 'mapbox://styles/mapbox/streets-v11',
+        center: center,
+        zoom: 12
+      });
+      loadPins(data);
+    }
+  }
+
+  useEffect(() => {
+    initPinsAndMap();
+  }, []);
 
   // Get Route from Mapbox Directions API
   async function getRoute(start, end) {
@@ -55,6 +95,7 @@ export default function App() {
     }
     // add turn instructions here at the end
   }
+
   const separator = (id, pins) => {
     const point = pins.find(pin => pin.id === id);
     const rest = pins.filter(pin => pin.id !== id);
@@ -70,8 +111,11 @@ export default function App() {
     return Math.sqrt(Math.pow(lngDiff, 2) + Math.pow(latDiff, 2));
   }
 
+  let orderToVisit = 1;
+
+  // Search Nearest Pin
   const searcher = (separatedObj) => {
-    const distances = []; //Store distances from Pythagoras.
+    const distances = []; //Store distances from Pythagoras Theorem.
     const mainPin = separatedObj.point;
     const otherPins = separatedObj.rest;
     otherPins.forEach((i) => {
@@ -80,8 +124,11 @@ export default function App() {
     const smallest = Math.min(...distances) // Nearest distance
     const indexOfNearestDistance = distances.indexOf(smallest);
     const nearestPin = separatedObj.rest[indexOfNearestDistance];
+    nearestPin.label = orderToVisit;
+    setRender(!render);
+    orderToVisit += 1;
 
-    // Add Layer of the Route
+    // Add Layer of the Routes
     getRoute(mainPin, nearestPin);
 
     return [nearestPin.id, otherPins];
@@ -92,52 +139,90 @@ export default function App() {
       const sepRes = separator(id, pins);
       const searchRes = searcher(sepRes);
       algorithm({ id: searchRes[0], pins: searchRes[1] });
+      setNewPinsStatus(false);
     }
   }
 
   useEffect(() => {
-    if (map.current) return; // initialize map only once
-    map.current = new mapboxgl.Map({
-      container: "map",
-      style: 'mapbox://styles/mapbox/streets-v11',
-      center: center,
-      zoom: 12
+    if (!map.current) return; // Wait for map to initialize
+    algorithm({ pins: pins });
+  }, [pins]);
+
+  // Add New Markers
+  useEffect(() => {
+    if (!map.current) return; // Wait for map to initialize
+    map.current.on('click', (e) => {
+      // Create new Markers
+      if (newPinsStatus) new mapboxgl.Marker().setLngLat(e.lngLat).addTo(map.current);
+
+      // Add new Marker Data to Pins
+      pins.push({
+        id: pins.length,
+        label: 'Unknown Order',
+        lng: e.lngLat.lng,
+        lat: e.lngLat.lat,
+      })
     });
-  }, [map.current]);
+  }, [newPinsStatus]);
 
   useEffect(() => {
-    if (!map.current) return; // wait for map to initialize
-    map.current.on('load', () => {
-      // Add My Location
-      new mapboxgl.Marker().setLngLat({lng: center[0], lat: center[1]}).addTo(map.current);
-      // Add 20 MARKERS
-      pins.forEach((pin) => {
-        let marker = new mapboxgl.Marker()
-        const temp = {
-          lng: pin.lng,
-          lat: pin.lat
-        }
-        marker.setLngLat(temp).addTo(map.current);
-        // console.log("Added marker at: ", temp.lng, temp.lat);
-        // Add a ROUTE
-        // const coords = Object.keys(e.lngLat).map((key) => e.lngLat[key]);
-        // getRoute(coords);
-
-        // Run the Algorithm
-        algorithm({ pins: pins });
-      });
-    });
+    if (!map.current) return; // Wait for map to initialize
     map.current.on('click', (e) => {
       setLng(e.lngLat.lng);
       setLat(e.lngLat.lat);
     });
-  }, []);
+  });
+
+  const displayPopup = (pin) => {
+    // Create PopUp
+    const popup = new mapboxgl.Popup({ closeOnClick: false })
+      .setLngLat([Number(pin.lng) - 0.002, Number(pin.lat) + 0.003])
+      .setHTML(`<h1>${pin.label}</h1>`)
+      .addTo(map.current);
+    map.current.on('closeAllPopups', () => {
+      popup.remove();
+    });
+  };
+
+  const closeAllPopups = () => {
+    map.current.fire('closeAllPopups');
+  }
 
   return (
     <>
-      <div className="flex flex-col gap-2 justify-center items-center h-screen">
-        <div className="sidebarStyle">Longitude: {lng}, Latitude: {lat}</div>
-        <div id="map" className='w-[75%] h-[75%]' />
+      <div className="flex">
+        <div className="w-[18vw] bg-black/20 h-screen text-center flex flex-col items-center justify-center">
+          <p className="font-bold text-lg">Places to Visit</p>
+          {
+            pins.sort((a, b) => a.label - b.label).map(pin =>
+              <div className="mb-1">
+                {
+                  typeof pin.label === "string" ?
+                    <button type="button" onClick={() => displayPopup(pin)}>
+                      {pin.label}
+                    </button> :
+                    <button type="button" onClick={() => displayPopup(pin)}>
+                      Location {pin.label} to visit
+                    </button>
+                }
+              </div>
+            )
+          }
+        </div>
+        <div className="flex flex-col gap-2 justify-center items-center w-[82vw] h-screen">
+          <h1 className="text-lg">Clicked Location</h1>
+          <div className="text-lg">
+            Longitude: {lng}, Latitude: {lat}
+          </div>
+          <div id="map" className="w-full h-[75%] my-4" />
+          <div className="flex justify-between w-[80%]">
+            <button type="button" className={newPinsStatus ? "bg-red-500 px-4 py-2 text-lg font-bold rounded-full text-white" : "bg-green-500 px-4 py-2 text-lg font-bold rounded-full text-white"} onClick={() => setNewPinsStatus(true)}>
+              {newPinsStatus ? "Adding New Pins..." : "Add New Pins"}
+            </button>
+            <button type="button" className="bg-red-500 px-4 py-2 text-lg font-bold rounded-full text-white" onClick={() => closeAllPopups()}>Close All Popups</button>
+            <button type="button" className="bg-blue-500 px-4 py-2 text-lg font-bold rounded-full text-white" onClick={() => algorithm({ pins: pins })}>Calculate the Route</button>
+          </div>
+        </div>
       </div>
     </>
   );
